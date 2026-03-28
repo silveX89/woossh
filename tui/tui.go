@@ -335,27 +335,6 @@ func (m *tuiModel) updateSuggestions() {
 	m.input.SetSuggestions(suggestions)
 }
 
-// tryConsumeSlashCommand checks if the current input value is exactly a slash
-// command token. Called when the user presses Space.
-func (m *tuiModel) tryConsumeSlashCommand(val string) bool {
-	trimmed := strings.TrimSpace(val)
-	changed := false
-	switch trimmed {
-	case "/o":
-		m.flags.BypassJumphost = true
-		changed = true
-	case "/v":
-		m.flags.Verbose = true
-		changed = true
-	case "/d":
-		m.flags.DryRun = true
-		changed = true
-	case "/l":
-		m.flags.Legacy = true
-		changed = true
-	}
-	return changed
-}
 
 func (m tuiModel) Init() tea.Cmd {
 	return textinput.Blink
@@ -410,9 +389,15 @@ func (m tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			return m, nil
 
-		case msg.Type == tea.KeyRunes && string(msg.Runes) == " ":
+		case msg.Type == tea.KeySpace,
+			msg.Type == tea.KeyRunes && string(msg.Runes) == " ":
 			val := m.input.Value()
-			if m.tryConsumeSlashCommand(val) {
+			hostname, parsedFlags := sshpkg.ParseSlashPrefixes(val)
+			if hostname == "" && parsedFlags.Any() {
+				m.flags.BypassJumphost = m.flags.BypassJumphost || parsedFlags.BypassJumphost
+				m.flags.Verbose = m.flags.Verbose || parsedFlags.Verbose
+				m.flags.DryRun = m.flags.DryRun || parsedFlags.DryRun
+				m.flags.Legacy = m.flags.Legacy || parsedFlags.Legacy
 				m.input.SetValue("")
 				m.updatePromptStyle()
 				m.updateSuggestions()
