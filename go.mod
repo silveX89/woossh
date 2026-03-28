@@ -1,4 +1,4 @@
-module woossh
+module github.com/silveX89/woossh
 
 go 1.24.2
 

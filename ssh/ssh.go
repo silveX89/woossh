@@ -7,8 +7,8 @@ import (
 	"strconv"
 	"strings"
 
-	"woossh/config"
-	"woossh/model"
+	"github.com/silveX89/woossh/config"
+	"github.com/silveX89/woossh/model"
 )
 
 // Flags holds the active slash-command flags for a connection.

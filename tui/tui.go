@@ -14,9 +14,9 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/sahilm/fuzzy"
 
-	"woossh/config"
-	"woossh/model"
-	sshpkg "woossh/ssh"
+	"github.com/silveX89/woossh/config"
+	"github.com/silveX89/woossh/model"
+	sshpkg "github.com/silveX89/woossh/ssh"
 )
 
 // Result is returned from Run after the user makes a selection.

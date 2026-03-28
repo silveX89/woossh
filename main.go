@@ -5,10 +5,10 @@ import (
 	"os"
 	"strings"
 
-	"woossh/config"
-	"woossh/model"
-	sshpkg "woossh/ssh"
-	"woossh/tui"
+	"github.com/silveX89/woossh/config"
+	"github.com/silveX89/woossh/model"
+	sshpkg "github.com/silveX89/woossh/ssh"
+	"github.com/silveX89/woossh/tui"
 )
 
 const Version = "v0.1.0"
