@@ -39,12 +39,25 @@ sudo mv woossh /usr/local/bin/
 go install github.com/silveX89/woossh@latest
 ```
 
-### Shell completion (bash)
+### Shell completion
 
+**Bash:**
 Add to `~/.bashrc`:
 
 ```bash
 complete -C "woossh --list-hosts" woossh
+```
+
+**Zsh:**
+```bash
+source completions/_woossh
+# or copy to fpath:
+cp completions/_woossh /usr/share/zsh/site-functions/
+```
+
+**Fish:**
+```bash
+cp completions/woossh.fish ~/.config/fish/completions/
 ```
 
 ## Configuration
@@ -66,7 +79,7 @@ firewall,192.168.1.1,Edge firewall
 loadbalancer,192.168.1.10,HAProxy LB
 ```
 
-Also supports XIQ-SE exports (`name`/`ip address` columns) and plain host lists (one hostname per line).
+Also supports `name`/`ip address` column format and plain host lists (one hostname per line).
 
 ## Usage
 
@@ -76,17 +89,48 @@ Also supports XIQ-SE exports (`name`/`ip address` columns) and plain host lists 
 woossh
 ```
 
-- Type to fuzzy-search hosts
-- `↑` / `↓` — scroll the host table
-- `Tab` — accept fuzzy suggestion
-- `Enter` — connect
-- `Ctrl+C` — quit
+### TUI keybindings
+
+| Key | Action |
+|-----|--------|
+| `Type` | Fuzzy-search hosts |
+| `↑` / `↓` | Scroll host table |
+| `Tab` | Accept suggestion |
+| `Enter` | Connect |
+| `Ctrl+C` | Quit |
+| `Ctrl+F` | Toggle favorite (★) |
+| `Ctrl+Y` | Toggle copy mode (/c) |
+| `Ctrl+T` | Toggle tmux mode (/t) |
+| `Ctrl+O` | Open tmux session overview |
+| `Ctrl+S` | Save settings |
+| `/s` | Open settings menu |
+
+### Tmux session overview (Ctrl+O)
+
+View active tmux sessions with host, PID, uptime and status:
+
+| Key | Action |
+|-----|--------|
+| `Enter` | Attach to session |
+| `k` | Kill selected session |
+| `d` | Detach all sessions |
+| `Esc` / `q` | Back to host list |
+| `↑` / `↓` | Scroll session list |
 
 ### Direct connect
 
 ```bash
 woossh <hostname>
 ```
+
+### CLI commands
+
+| Command | Description |
+|---------|-------------|
+| `--list-hosts` | Print all hostnames (for shell completion) |
+| `--version` / `-v` | Show version ("woossh v0.2.0") |
+| `--cleanup` | Kill stale detached tmux sessions (>24h) |
+| `--import-ssh-config [path]` | Import hosts from `~/.ssh/config` |
 
 ### Flags
 
@@ -97,6 +141,8 @@ Flags are slash-prefixed and stackable (e.g. `/o/v`). Use them as CLI prefixes o
 | `/d` | Dry-run — print the ssh command without connecting |
 | `/o` | Bypass jump host |
 | `/v` | Verbose ssh output |
+| `/c` | Copy mode — copy ssh command to clipboard instead of connecting |
+| `/t` | Tmux mode — wrap SSH in a named tmux session |
 | `/l` | Legacy `ssh-rsa` key support |
 
 ```bash

@@ -1,0 +1,11 @@
+hostname,host,port,user,jumphost,jumpuser,notes,legacy
+webserver-01,10.0.1.10,22,admin,,,Cloud Site · Web Server · Docker,
+infra-01,10.0.1.20,22,admin,,,Cloud Site · Infrastructure · Docker,
+nextcloud,10.0.1.30,22,admin,,,Cloud Site · Nextcloud VM,
+media-server,10.0.2.10,22,admin,,,Home Site · Media Server (Plex/Jellyfin),
+app-server,10.0.2.20,22,admin,,,Home Site · App Server (Dashboards),
+nas,10.0.2.5,22,admin,,,Home Site · NAS Storage,
+firewall,10.0.0.1,22,admin,,,Home Site · Edge Firewall,
+proxmox-home,192.168.1.100,22,root,,,Home Site · Proxmox (Legacy),yes
+vps-01,203.0.113.10,22,root,,,VPS · Cloud Server,
+dev-user,10.0.2.20,22,devuser,,,Home Site · Developer Test Connection

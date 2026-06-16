@@ -1,0 +1,16 @@
+#compdef woossh
+
+_woossh() {
+  local -a hosts
+  hosts=($(woossh --list-hosts 2>/dev/null))
+  _arguments \
+    '--list-hosts[List all known hosts]' \
+    '--version[Show version]' \
+    '-v[Show version]' \
+    '--import-ssh-config[Import hosts from ~/.ssh/config]:file:_files' \
+    '--cleanup[Clean up stale tmux sessions]' \
+    '1:hostname:(${hosts})' \
+    '*::arg:->args'
+}
+
+_woossh "$@"

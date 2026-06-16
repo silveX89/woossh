@@ -1,0 +1,35 @@
+; woossh configuration
+; Copy this file to config.ini and adjust values
+
+global_jumphost = no
+jumpserver = bastion.example.com
+jumpuser = jumpuser
+ssh_user = admin
+
+; Allgemein
+hosts_path = ./hosts.csv
+config_path = ./config.ini
+default_user = root
+ssh_port = 22
+
+; SSH
+identity_file = ~/.ssh/id_rsa
+jump_host = bastion.example.com
+forward_agent = no
+timeout = 10
+
+; Tmux
+use_tmux = no
+socket_path =
+session_prefix = woossh_
+
+; TUI
+color_scheme = default
+show_ip = yes
+show_port = no
+show_favorites = yes
+pager_lines = 0
+
+; Favoriten
+favorites_file =
+favorite_sort = name

@@ -17,6 +17,8 @@ type Flags struct {
 	Verbose        bool // /v
 	DryRun         bool // /d
 	Legacy         bool // /l
+	CopyCmd        bool // /c — copy ssh command to clipboard instead of connecting
+	UseTmux        bool // /t — wrap SSH in a tmux session
 }
 
 // ParseSlashPrefixes strips leading /o /v /d /l prefixes from a typed string
@@ -36,6 +38,12 @@ func ParseSlashPrefixes(s string) (string, Flags) {
 			s = s[2:]
 		} else if strings.HasPrefix(s, "/l") && (len(s) == 2 || s[2] == '/' || s[2] == ' ') {
 			flags.Legacy = true
+			s = s[2:]
+		} else if strings.HasPrefix(s, "/c") && (len(s) == 2 || s[2] == '/' || s[2] == ' ') {
+			flags.CopyCmd = true
+			s = s[2:]
+		} else if strings.HasPrefix(s, "/t") && (len(s) == 2 || s[2] == '/' || s[2] == ' ') {
+			flags.UseTmux = true
 			s = s[2:]
 		} else {
 			break
@@ -59,12 +67,18 @@ func (f Flags) FlagString() string {
 	if f.Legacy {
 		parts = append(parts, "[l]")
 	}
+	if f.CopyCmd {
+		parts = append(parts, "[c]")
+	}
+	if f.UseTmux {
+		parts = append(parts, "[t]")
+	}
 	return strings.Join(parts, "")
 }
 
 // Any returns true if any flag is set.
 func (f Flags) Any() bool {
-	return f.BypassJumphost || f.Verbose || f.DryRun || f.Legacy
+	return f.BypassJumphost || f.Verbose || f.DryRun || f.Legacy || f.CopyCmd || f.UseTmux
 }
 
 // BuildArgs constructs the ssh argument list for the given entry, config and flags.

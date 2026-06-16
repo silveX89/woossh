@@ -1,3 +1,12 @@
 woossh
 .instr
 .claude/
+CLAUDE.md
+hosts.csv
+config.ini
+*.bak
+*.kdbx
+*.key
+*.test
+coverage.out
+.hermes/

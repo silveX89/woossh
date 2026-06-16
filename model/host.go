@@ -1,6 +1,7 @@
 package model
 
 import (
+	"bufio"
 	"encoding/csv"
 	"os"
 	"path/filepath"
@@ -43,8 +44,16 @@ func findFile(name string) string {
 	return ""
 }
 
-func LoadHosts() ([]HostEntry, error) {
-	path := findFile("hosts.csv")
+func LoadHosts(hostsPath string) ([]HostEntry, error) {
+	path := hostsPath
+	if path != "" {
+		if _, err := os.Stat(path); err != nil {
+			path = "" // fall back to search
+		}
+	}
+	if path == "" {
+		path = findFile("hosts.csv")
+	}
 	if path == "" {
 		return nil, nil
 	}
@@ -140,7 +149,7 @@ func parseRecords(records [][]string) []HostEntry {
 	if hasCol("hostname") {
 		return parseFullFormat(dataRows, colIdx)
 	} else if hasCol("name") && hasCol("ip address") {
-		return parseXIQFormat(dataRows, colIdx)
+		return parseNameIPFormat(dataRows, colIdx)
 	} else if hasCol("host") && hasCol("addr") {
 		return parseTwoColFormat(dataRows, colIdx)
 	} else {
@@ -214,7 +223,7 @@ func parseFullFormat(rows [][]string, colIdx func(string) int) []HostEntry {
 	return entries
 }
 
-func parseXIQFormat(rows [][]string, colIdx func(string) int) []HostEntry {
+func parseNameIPFormat(rows [][]string, colIdx func(string) int) []HostEntry {
 	iName := colIdx("name")
 	iIP := colIdx("ip address")
 	iPort := colIdx("port")
@@ -261,6 +270,121 @@ func parseTwoColFormat(rows [][]string, colIdx func(string) int) []HostEntry {
 		})
 	}
 	return entries
+}
+
+// ImportSSHConfig parses ~/.ssh/config and returns HostEntry slice.
+// Supports: Host, HostName, User, Port, HostKeyAlias, ProxyJump.
+// Wildcard Host * entries are skipped.
+func ImportSSHConfig(path string) ([]HostEntry, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+
+	type sshHost struct {
+		names      []string
+		hostName   string
+		user       string
+		port       int
+		proxyJump  string
+		skip       bool
+	}
+
+	var blocks []sshHost
+	var current sshHost
+	sc := bufio.NewScanner(f)
+
+	for sc.Scan() {
+		line := strings.TrimSpace(sc.Text())
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		if strings.HasPrefix(strings.ToUpper(line), "HOST ") {
+			// Save previous block if it has at least one non-wildcard host
+			if len(current.names) > 0 {
+				blocks = append(blocks, current)
+			}
+			current = sshHost{}
+			rest := strings.TrimSpace(line[4:])
+			// Parse space-separated patterns
+			parts := strings.Fields(rest)
+			for _, p := range parts {
+				if p == "*" || strings.Contains(p, "?") {
+					current.skip = true
+				} else if strings.Contains(p, "*") {
+					// Pattern like *.example.com — skip
+					current.skip = true
+				} else {
+					current.names = append(current.names, p)
+				}
+			}
+			continue
+		}
+
+		if strings.HasPrefix(strings.ToUpper(line), "HOSTNAME ") {
+			current.hostName = strings.TrimSpace(line[9:])
+		} else if strings.HasPrefix(strings.ToUpper(line), "USER ") {
+			current.user = strings.TrimSpace(line[5:])
+		} else if strings.HasPrefix(strings.ToUpper(line), "PORT ") {
+			p, err := strconv.Atoi(strings.TrimSpace(line[5:]))
+			if err == nil {
+				current.port = p
+			}
+		} else if strings.HasPrefix(strings.ToUpper(line), "PROXYJUMP ") {
+			current.proxyJump = strings.TrimSpace(line[10:])
+		}
+	}
+	// Save last block
+	if len(current.names) > 0 {
+		blocks = append(blocks, current)
+	}
+
+	var entries []HostEntry
+	for _, b := range blocks {
+		if b.skip {
+			continue
+		}
+		for _, name := range b.names {
+			e := HostEntry{
+				Hostname: name,
+				Host:     b.hostName,
+				User:     b.user,
+				Port:     b.port,
+			}
+			// Parse ProxyJump: user@host or just host
+			if b.proxyJump != "" {
+				if at := strings.LastIndex(b.proxyJump, "@"); at >= 0 {
+					e.JumpUser = b.proxyJump[:at]
+					e.JumpHost = b.proxyJump[at+1:]
+				} else {
+					e.JumpHost = b.proxyJump
+				}
+			}
+			entries = append(entries, e)
+		}
+	}
+	return entries, nil
+}
+
+// MergeHosts merges new entries into existing ones. Existing hosts (by hostname) are NOT overwritten.
+func MergeHosts(existing, newEntries []HostEntry) []HostEntry {
+	exists := make(map[string]bool, len(existing))
+	for _, h := range existing {
+		exists[h.Hostname] = true
+	}
+	merged := make([]HostEntry, len(existing))
+	copy(merged, existing)
+	for _, h := range newEntries {
+		if !exists[h.Hostname] {
+			merged = append(merged, h)
+			exists[h.Hostname] = true
+		}
+	}
+	sort.Slice(merged, func(i, j int) bool {
+		return strings.ToLower(merged[i].Hostname) < strings.ToLower(merged[j].Hostname)
+	})
+	return merged
 }
 
 // FindEntry resolves typed text to a HostEntry using the 4-step priority from the spec.
