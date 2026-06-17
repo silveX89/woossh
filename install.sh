@@ -17,7 +17,7 @@ echo "Installing woossh..."
 TMP=$(mktemp -d)
 trap 'rm -rf "$TMP"' EXIT
 
-git clone --depth=1 "$REPO" "$TMP/woossh"
+git clone --depth=1 --branch exp "$REPO" "$TMP/woossh"
 cd "$TMP/woossh"
 go build -o "$BINARY" .
 
