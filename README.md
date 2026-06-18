@@ -11,7 +11,7 @@ A terminal UI for managing and connecting to SSH hosts. Fuzzy-search your host l
                      ╚══╝╚══╝  ╚═════╝  ╚═════╝ ╚══════╝╚══════╝╚═╝  ╚═╝
 ```
 
-**Version:** v0.3.0 — Plugin-System mit external Plugin Repo
+**Version:** v0.3.1 — Plugin-System (compiled-in Registry, Manager, Installer, TUI-Plugin-View)
 
 ## Requirements
 
@@ -77,12 +77,12 @@ woossh looks for config files in `./` first, then `~/.config/woossh/`:
 
 ### Plugin-System
 
-woossh v0.3.0+ hat ein compiled-in Plugin-System. Plugins werden via blank import
+woossh v0.3.1+ hat ein compiled-in Plugin-System. Plugins werden via blank import
 in `registry_gen.go` eingebunden und bei jedem Build neu compiliert.
 
 **Plugin-Manager (Ctrl+P):**
 ```
-  🔌  Plugin Manager — woossh v0.3.0
+  🔌  Plugin Manager — woossh v0.3.1
   ─────────────────────────────────────
   Plugin                    Version    Status     Source
   ─────────────────────────────────────
@@ -165,7 +165,7 @@ woossh <hostname>
 | Command | Description |
 |---------|-------------|
 | `--list-hosts` | Print all hostnames (for shell completion) |
-| `--version` / `-v` | Show version (`woossh v0.3.0`) |
+| `--version` / `-v` | Show version (`woossh v0.3.1`) |
 | `--cleanup` | Kill stale detached tmux sessions (>24h) |
 | `--import-ssh-config [path]` | Import hosts from `~/.ssh/config` |
 

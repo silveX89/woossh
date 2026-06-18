@@ -39,7 +39,7 @@ func TestInitialModelWithPluginMgr(t *testing.T) {
 	_ = mgr.LoadState()
 	mgr.InitAll()
 
-	m := initialModel(cfg, hosts, "v0.3.0", mgr)
+	m := initialModel(cfg, hosts, "v0.3.1", mgr)
 	if m.pluginMgr == nil {
 		t.Fatal("pluginMgr should not be nil")
 	}
@@ -53,7 +53,7 @@ func TestPluginViewRenders(t *testing.T) {
 	hosts, _ := model.LoadHosts(cfg.HostsPath)
 	mgr := plugin.NewManager(&cfg, &hosts)
 
-	m := initialModel(cfg, hosts, "v0.3.0", mgr)
+	m := initialModel(cfg, hosts, "v0.3.1", mgr)
 	m.mode = modePluginManager
 	m.width = 80
 	m.height = 40
