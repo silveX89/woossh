@@ -42,7 +42,7 @@ func TestPluginSettingsViewRenders(t *testing.T) {
 	_ = mgr.LoadState()
 	mgr.InitAll()
 
-	m := initialModel(cfg, hosts, "v0.3.1", mgr)
+	m := initialModel(cfg, hosts, "v0.3.2", mgr)
 	m.mode = modePluginSettings
 	m.width = 80
 	m.height = 40
@@ -100,7 +100,7 @@ func TestPluginSettingsEditFlow(t *testing.T) {
 	_ = mgr.LoadState()
 	mgr.InitAll()
 
-	m := initialModel(cfg, hosts, "v0.3.1", mgr)
+	m := initialModel(cfg, hosts, "v0.3.2", mgr)
 	m.pluginSettingsPluginID = "test-settings-plugin"
 	m.pluginMgr = mgr
 

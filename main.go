@@ -14,7 +14,7 @@ import (
 	"github.com/silveX89/woossh/tui"
 )
 
-const Version = "v0.3.1"
+const Version = "v0.3.2"
 
 func main() {
 	args := os.Args[1:]
