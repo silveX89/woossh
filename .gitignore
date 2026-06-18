@@ -9,4 +9,5 @@ config.ini
 *.key
 *.test
 coverage.out
-.hermes/registry_gen.go
+.hermes/
+registry_gen.go

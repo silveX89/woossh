@@ -19,6 +19,13 @@ trap 'rm -rf "$TMP"' EXIT
 
 git clone --depth=1 --branch exp "$REPO" "$TMP/woossh"
 cd "$TMP/woossh"
+
+# Strip local-only plugin replace directives: fresh install has no ~/.local/woossh-plugins
+go mod edit -dropreplace github.com/silveX89/woossh-plugins/tmux 2>/dev/null || true
+go mod edit -droprequire github.com/silveX89/woossh-plugins/tmux 2>/dev/null || true
+# Remove stale registry_gen.go — will be regenerated when user installs a plugin
+rm -f registry_gen.go
+
 go build -o "$BINARY" .
 
 # Install binary
@@ -31,8 +38,3 @@ fi
 
 echo "woossh installed to $INSTALL_DIR/$BINARY"
 echo "Run: woossh"
-
-# Optional: shell completion hint
-echo ""
-echo "Shell completion (bash) — add to ~/.bashrc:"
-echo '  complete -C "woossh --list-hosts" woossh'

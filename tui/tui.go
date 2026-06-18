@@ -26,6 +26,26 @@ import (
 // resetPromptMsg is sent after a timed delay to restore the default prompt look.
 type resetPromptMsg struct{}
 
+// pluginOpMsg is returned by async install/remove commands.
+type pluginOpMsg struct {
+	op  string // "install" | "remove"
+	err error
+}
+
+func runInstallPlugin(mgr *plugin.Manager, url string) tea.Cmd {
+	return func() tea.Msg {
+		err := mgr.InstallPlugin(url, false)
+		return pluginOpMsg{op: "install", err: err}
+	}
+}
+
+func runRemovePlugin(mgr *plugin.Manager, id string) tea.Cmd {
+	return func() tea.Msg {
+		err := mgr.RemovePlugin(id)
+		return pluginOpMsg{op: "remove", err: err}
+	}
+}
+
 // Result is returned from Run after the user makes a selection.
 type Result struct {
 	Target     string
@@ -404,11 +424,12 @@ func renderTableRowWithName(h model.HostEntry, cfg config.Config, w colWidths, h
 type appMode int
 
 const (
-	modeHosts         appMode = iota // Host list view (default)
-	modeSettings                     // Settings view
-	modeTmuxOverview                 // Tmux session overview
-	modePluginManager                // Plugin manager view
-	modePluginSettings               // Plugin settings view
+	modeHosts             appMode = iota // Host list view (default)
+	modeSettings                         // Settings view
+	modeTmuxOverview                     // Tmux session overview
+	modePluginManager                    // Plugin manager view
+	modePluginSettings                   // Plugin-specific settings view
+	modePluginRepoSettings               // Plugin repository management view
 )
 
 // settingsNavItem is a single row in the settings view.
@@ -482,14 +503,21 @@ type tuiModel struct {
 	tmuxError        string // error message from tmux
 
 	// plugin manager
-	pluginMgr            *plugin.Manager
-	pluginScrollOffset   int
+	pluginMgr          *plugin.Manager
+	pluginScrollOffset int
+	pluginEntries      []plugin.PluginEntry // cached plugin list
+	pluginOpStatus     string               // last install/remove status message
 
-	// plugin settings view
+	// plugin-specific settings view
 	pluginSettingsPluginID  string
 	pluginSettingsOffset    int
 	pluginSettingsEditState pluginSettingsEditState
 	pluginSettingsEditBuf   string
+
+	// plugin repo settings view
+	pluginRepoOffset  int
+	pluginRepoAddMode bool
+	pluginRepoAddBuf  string
 }
 
 func initialModel(cfg config.Config, hosts []model.HostEntry, version string, pluginMgr *plugin.Manager) tuiModel {
@@ -607,6 +635,19 @@ func (m tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case resetPromptMsg:
 		m.updatePromptStyle()
+		return m, nil
+
+	case pluginOpMsg:
+		if msg.err != nil {
+			m.pluginOpStatus = "Error: " + msg.err.Error()
+		} else if msg.op == "install" {
+			m.pluginOpStatus = "Installed — rebuild required: go build -o $(which woossh) ."
+		} else {
+			m.pluginOpStatus = "Removed — rebuild required: go build -o $(which woossh) ."
+		}
+		if m.pluginMgr != nil {
+			m.pluginEntries, _ = m.pluginMgr.ListPlugins()
+		}
 		return m, nil
 
 	case tea.WindowSizeMsg:
@@ -881,6 +922,99 @@ func (m tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 
+		// Plugin repo settings mode keyboard handling
+		if m.mode == modePluginRepoSettings {
+			switch {
+			case msg.Type == tea.KeyCtrlC:
+				m.err = errors.New("interrupted")
+				m.quitting = true
+				return m, tea.Quit
+
+			case msg.Type == tea.KeyEscape, msg.Runes != nil && string(msg.Runes) == "q":
+				if m.pluginRepoAddMode {
+					m.pluginRepoAddMode = false
+					m.pluginRepoAddBuf = ""
+					return m, nil
+				}
+				m.mode = modePluginManager
+				return m, nil
+
+			case m.pluginRepoAddMode:
+				switch {
+				case msg.Type == tea.KeyEnter:
+					if strings.TrimSpace(m.pluginRepoAddBuf) != "" && m.pluginMgr != nil {
+						_ = m.pluginMgr.AddRepo(plugin.PluginRepo{
+							URL:     strings.TrimSpace(m.pluginRepoAddBuf),
+							Name:    plugin.NameFromURL(m.pluginRepoAddBuf),
+							Enabled: true,
+						})
+					}
+					m.pluginRepoAddMode = false
+					m.pluginRepoAddBuf = ""
+					return m, nil
+
+				case msg.Type == tea.KeyEscape:
+					m.pluginRepoAddMode = false
+					m.pluginRepoAddBuf = ""
+					return m, nil
+
+				case msg.Type == tea.KeyBackspace:
+					if len(m.pluginRepoAddBuf) > 0 {
+						m.pluginRepoAddBuf = m.pluginRepoAddBuf[:len(m.pluginRepoAddBuf)-1]
+					}
+					return m, nil
+
+				case msg.Type == tea.KeyRunes:
+					m.pluginRepoAddBuf += string(msg.Runes)
+					return m, nil
+				}
+				return m, nil
+
+			case msg.Type == tea.KeyUp:
+				if m.pluginRepoOffset > 0 {
+					m.pluginRepoOffset--
+				}
+				return m, nil
+
+			case msg.Type == tea.KeyDown:
+				if m.pluginMgr != nil {
+					repos := m.pluginMgr.GetRepos()
+					if m.pluginRepoOffset < len(repos)-1 {
+						m.pluginRepoOffset++
+					}
+				}
+				return m, nil
+
+			case msg.Runes != nil && string(msg.Runes) == "a":
+				m.pluginRepoAddMode = true
+				m.pluginRepoAddBuf = ""
+				return m, nil
+
+			case msg.Runes != nil && string(msg.Runes) == "d":
+				if m.pluginMgr != nil {
+					repos := m.pluginMgr.GetRepos()
+					if m.pluginRepoOffset < len(repos) {
+						_ = m.pluginMgr.RemoveRepo(repos[m.pluginRepoOffset].URL)
+						remaining := m.pluginMgr.GetRepos()
+						if m.pluginRepoOffset >= len(remaining) && m.pluginRepoOffset > 0 {
+							m.pluginRepoOffset--
+						}
+					}
+				}
+				return m, nil
+
+			case msg.Type == tea.KeyEnter:
+				if m.pluginMgr != nil {
+					repos := m.pluginMgr.GetRepos()
+					if m.pluginRepoOffset < len(repos) {
+						_ = m.pluginMgr.ToggleRepo(repos[m.pluginRepoOffset].URL)
+					}
+				}
+				return m, nil
+			}
+			return m, nil
+		}
+
 		// Plugin manager mode keyboard handling
 		if m.mode == modePluginManager {
 			switch {
@@ -903,36 +1037,52 @@ func (m tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, nil
 
 			case msg.Type == tea.KeyDown:
-				plugins := plugin.All()
-				if m.pluginScrollOffset < len(plugins)-1 {
+				if m.pluginScrollOffset < len(m.pluginEntries)-1 {
 					m.pluginScrollOffset++
 				}
 				return m, nil
 
 			case msg.Type == tea.KeyEnter:
-				// Toggle plugin enable/disable
-				plugins := plugin.All()
-				if len(plugins) > 0 && m.pluginScrollOffset < len(plugins) {
-					p := plugins[m.pluginScrollOffset]
-					if m.pluginMgr.IsEnabled(p.ID()) {
-						_ = m.pluginMgr.Disable(p.ID())
+				// Toggle enable/disable for the selected plugin entry
+				if m.pluginMgr != nil && m.pluginScrollOffset < len(m.pluginEntries) {
+					e := m.pluginEntries[m.pluginScrollOffset]
+					if m.pluginMgr.IsEnabled(e.ID) {
+						_ = m.pluginMgr.Disable(e.ID)
 					} else {
-						_ = m.pluginMgr.Enable(p.ID())
+						_ = m.pluginMgr.Enable(e.ID)
+					}
+					m.pluginEntries, _ = m.pluginMgr.ListPlugins()
+				}
+				return m, nil
+
+			case msg.Runes != nil && string(msg.Runes) == "d":
+				// Download / install the selected available plugin
+				if m.pluginMgr != nil && m.pluginScrollOffset < len(m.pluginEntries) {
+					e := m.pluginEntries[m.pluginScrollOffset]
+					if e.Status == plugin.PluginAvailable {
+						m.pluginOpStatus = "Downloading " + e.Name + "..."
+						return m, runInstallPlugin(m.pluginMgr, e.Source)
+					}
+				}
+				return m, nil
+
+			case msg.Runes != nil && string(msg.Runes) == "r":
+				// Remove the selected downloaded plugin
+				if m.pluginMgr != nil && m.pluginScrollOffset < len(m.pluginEntries) {
+					e := m.pluginEntries[m.pluginScrollOffset]
+					if e.Status == plugin.PluginDownloaded || e.Status == plugin.PluginStatusEnabled {
+						m.pluginOpStatus = "Removing " + e.Name + "..."
+						return m, runRemovePlugin(m.pluginMgr, e.ID)
 					}
 				}
 				return m, nil
 
 			case msg.Runes != nil && string(msg.Runes) == "s":
-				// Open plugin settings
-				plugins := plugin.All()
-				if len(plugins) > 0 && m.pluginScrollOffset < len(plugins) {
-					p := plugins[m.pluginScrollOffset]
-					m.pluginSettingsPluginID = p.ID()
-					m.pluginSettingsOffset = 0
-					m.pluginSettingsEditState = pluginSettingsBrowse
-					m.pluginSettingsEditBuf = ""
-					m.mode = modePluginSettings
-				}
+				// Open repo settings
+				m.mode = modePluginRepoSettings
+				m.pluginRepoOffset = 0
+				m.pluginRepoAddMode = false
+				m.pluginRepoAddBuf = ""
 				return m, nil
 			}
 			return m, nil
@@ -984,6 +1134,19 @@ func (m tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// Plugin manager
 			m.mode = modePluginManager
 			m.pluginScrollOffset = 0
+			m.pluginOpStatus = ""
+			if m.pluginMgr != nil {
+				m.pluginEntries, _ = m.pluginMgr.ListPlugins()
+			}
+			m.input.Blur()
+			return m, nil
+
+		case msg.Type == tea.KeyCtrlR:
+			// Plugin repo settings
+			m.mode = modePluginRepoSettings
+			m.pluginRepoOffset = 0
+			m.pluginRepoAddMode = false
+			m.pluginRepoAddBuf = ""
 			m.input.Blur()
 			return m, nil
 
@@ -1138,6 +1301,11 @@ func (m tuiModel) View() string {
 		return m.pluginSettingsView()
 	}
 
+	// Plugin repo settings mode
+	if m.mode == modePluginRepoSettings {
+		return m.pluginRepoView()
+	}
+
 	var sb strings.Builder
 
 	// Banner
@@ -1197,8 +1365,8 @@ func (m tuiModel) View() string {
 
 	// Hint lines
 	sb.WriteString(styleDim.Render("  Tab / type to autocomplete  ·  Enter to connect  ·  Ctrl+C to quit") + "\n")
-	sb.WriteString(styleDim.Render("  /o direct  ·  /v verbose  ·  /d dry-run  ·  /l legacy  ·  /c copy  ·  /t tmux (stackable, e.g. /o/v)") + "\n")
-	sb.WriteString(styleDim.Render("  Ctrl+S settings  ·  Ctrl+F favorite  ·  Ctrl+Y toggle /c  ·  Ctrl+T tmux  ·  Ctrl+O overview  ·  Ctrl+P plugins") + "\n")
+	sb.WriteString(styleDim.Render("  /o direct  ·  /v verbose  ·  /d dry-run  ·  /l legacy  ·  /c copy  (stackable, e.g. /o/v)") + "\n")
+	sb.WriteString(styleDim.Render("  Ctrl+S settings  ·  Ctrl+F favorite  ·  Ctrl+Y toggle /c  ·  Ctrl+P plugins  ·  Ctrl+R repos") + "\n")
 
 	// Scroll indicator
 	if m.needsScroll() {

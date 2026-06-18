@@ -17,9 +17,10 @@ type PluginEntry struct {
 	Name    string
 	Version string
 	Enabled bool
-	Source  string // "builtin" | repo URL
+	Source  string       // "builtin" | repo URL
 	Trust   TrustLevel
-	Dir     string // local directory (empty for builtins)
+	Dir     string       // local directory (empty for builtins)
+	Status  PluginStatus // lifecycle state
 }
 
 // ImportMeta stores info about an installed external plugin.
@@ -71,12 +72,15 @@ func normalizeURL(rawURL string) string {
 	return rawURL
 }
 
-// nameFromURL extracts the last path segment as the plugin name.
-func nameFromURL(rawURL string) string {
+// NameFromURL extracts the last path segment as the plugin name.
+func NameFromURL(rawURL string) string {
 	url := normalizeURL(rawURL)
 	parts := strings.Split(url, "/")
 	return parts[len(parts)-1]
 }
+
+// nameFromURL is the unexported alias for internal use.
+func nameFromURL(rawURL string) string { return NameFromURL(rawURL) }
 
 // gitClone runs git clone --depth 1 for a URL into pluginsDir/name.
 func gitClone(rawURL, pluginsDir, name string) error {
@@ -95,15 +99,15 @@ func gitClone(rawURL, pluginsDir, name string) error {
 	return nil
 }
 
-// splitMonorepoURL erkennt GitHub-Monorepo-URLs der Form
-// github.com/<user>/<repo>/<subdir...> und gibt Git-Clone-URL
-// sowie Subdirectory separat zurück.
+// splitMonorepoURL detects GitHub monorepo URLs of the form
+// github.com/<user>/<repo>/<subdir...> and returns the git clone URL
+// and subdirectory separately.
 //
 //	github.com/silveX89/woossh-plugins/tmux
 //	  → cloneURL: "https://github.com/silveX89/woossh-plugins"
 //	  → subdir:   "tmux"
 //
-//	github.com/silveX89/woossh-plugin-tmux  (kein subdir)
+//	github.com/silveX89/woossh-plugin-tmux  (no subdir)
 //	  → cloneURL: "https://github.com/silveX89/woossh-plugin-tmux"
 //	  → subdir:   ""
 func splitMonorepoURL(modulePath string) (cloneURL, subdir string) {
@@ -117,9 +121,9 @@ func splitMonorepoURL(modulePath string) (cloneURL, subdir string) {
 	return
 }
 
-// gitCloneMonorepo klont ein Repo und gibt das Plugin-Verzeichnis zurück.
-// Bei Monorepo-URLs (subdir != "") wird das ganze Repo geklont,
-// aber nur das Unterverzeichnis als Plugin-Target verwendet.
+// gitCloneMonorepo clones a repo and returns the plugin directory.
+// For monorepo URLs (subdir != "") the whole repo is cloned but
+// only the subdirectory is used as the plugin target.
 func gitCloneMonorepo(rawURL, pDir string) (target string, err error) {
 	modPath := normalizeURL(rawURL)
 	cloneURL, subdir := splitMonorepoURL(modPath)
@@ -153,9 +157,9 @@ func gitCloneMonorepo(rawURL, pDir string) (target string, err error) {
 	return target, nil
 }
 
-// injectWoosshReplace prüft die Plugin-go.mod auf require github.com/silveX89/woossh
-// und injiziert eine replace-Direktive auf den lokalen woossh Source-Tree.
-// Führt danach 'go mod tidy' im Plugin-Verzeichnis aus.
+// injectWoosshReplace checks the plugin go.mod for a require of
+// github.com/silveX89/woossh and injects a replace directive pointing at the
+// local woossh source tree, then runs 'go mod tidy' inside the plugin dir.
 func injectWoosshReplace(target, srcDir string) error {
 	gomodPath := filepath.Join(target, "go.mod")
 	data, err := os.ReadFile(gomodPath)
@@ -188,8 +192,8 @@ func injectWoosshReplace(target, srcDir string) error {
 	return nil
 }
 
-// pluginLocalDir bestimmt das Plugin-Verzeichnis für eine URL
-// (konsistent mit gitCloneMonorepo).
+// pluginLocalDir returns the plugin directory for a URL,
+// consistent with gitCloneMonorepo.
 func pluginLocalDir(rawURL, pDir string) string {
 	modPath := normalizeURL(rawURL)
 	cloneURL, subdir := splitMonorepoURL(modPath)
@@ -535,7 +539,7 @@ func (m *Manager) InstallPlugin(rawURL string, rebuild bool) error {
 		return fmt.Errorf("write registry_gen.go: %w", err)
 	}
 
-	// go mod tidy erneut, damit der neue Blank-Import als require in go.mod landet
+	// Run go mod tidy again so the new blank-import lands as a require in go.mod.
 	fmt.Fprintf(os.Stderr, "Running go mod tidy (with registry update)...\n")
 	if err := runGoModTidy(srcDir); err != nil {
 		os.RemoveAll(target)
@@ -681,6 +685,10 @@ func (m *Manager) ListPlugins() ([]PluginEntry, error) {
 				break
 			}
 		}
+		status := PluginDownloaded
+		if m.IsEnabled(p.ID()) {
+			status = PluginStatusEnabled
+		}
 		entries = append(entries, PluginEntry{
 			ID:      p.ID(),
 			Name:    mf.Name,
@@ -689,6 +697,7 @@ func (m *Manager) ListPlugins() ([]PluginEntry, error) {
 			Source:  source,
 			Trust:   trust,
 			Dir:     "",
+			Status:  status,
 		})
 	}
 
@@ -754,17 +763,27 @@ func (m *Manager) ListPlugins() ([]PluginEntry, error) {
 					pVersion = "?"
 				}
 
+				extEnabled := m.IsEnabled(id) && registered
+				extStatus := PluginAvailable
+				if dirExists {
+					if extEnabled {
+						extStatus = PluginStatusEnabled
+					} else {
+						extStatus = PluginDownloaded
+					}
+				}
 				entries = append(entries, PluginEntry{
 					ID:      id,
 					Name:    pName,
 					Version: pVersion,
-					Enabled: m.IsEnabled(id) && registered,
+					Enabled: extEnabled,
 					Source:  meta.URL,
 					Trust:   trust,
 					Dir:     pluginDir,
+					Status:  extStatus,
 				})
 
-				// Mark if dir is missing
+				// Mark version label for broken/not-yet-rebuilt state.
 				if !dirExists {
 					entries[len(entries)-1].Version = "broken"
 				} else if !registered {

@@ -1,26 +1,26 @@
 package plugin
 
-// Plugin ist das Kern-Interface, das jedes Plugin implementieren muss.
+// Plugin is the core interface that every plugin must implement.
 type Plugin interface {
-	// ID gibt die eindeutige Plugin-ID zurück (z.B. "woossh-tmux").
+	// ID returns the unique plugin ID (e.g. "woossh-tmux").
 	ID() string
 
-	// Manifest gibt die statischen Metadaten zurück.
+	// Manifest returns static plugin metadata.
 	Manifest() Manifest
 
-	// Init wird einmalig beim Start aufgerufen. Der Context
-	// erlaubt Zugriff auf Config, Host-Liste, Hook-Registry.
+	// Init is called once at startup. The Context provides access to
+	// Config, host list, and hook registry.
 	Init(ctx *Context) error
 
-	// Enable wird aufgerufen, wenn der Nutzer das Plugin aktiviert.
-	// Hier können Ressourcen allokiert werden (z.B. Goroutinen starten).
+	// Enable is called when the user activates the plugin.
+	// Resources can be allocated here (e.g. start goroutines).
 	Enable() error
 
-	// Disable räumt auf. Nach dem Aufruf feuern keine Hooks mehr.
+	// Disable cleans up. After this call no hooks fire.
 	Disable() error
 }
 
-// Manifest enthält statische Plugin-Metadaten.
+// Manifest holds static plugin metadata.
 type Manifest struct {
 	ID          string       `yaml:"id"`
 	Name        string       `yaml:"name"`
@@ -36,7 +36,7 @@ type Manifest struct {
 	Permissions []string     `yaml:"permissions,omitempty"`
 }
 
-// SettingDef beschreibt ein einzelnes Plugin-Setting (für dynamische Settings-UI).
+// SettingDef describes a single plugin setting (for the dynamic settings UI).
 type SettingDef struct {
 	Key       string   `yaml:"key"`
 	Label     string   `yaml:"label"`

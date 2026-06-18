@@ -5,8 +5,8 @@ import (
 	"github.com/silveX89/woossh/model"
 )
 
-// Context ist das "was ein Plugin sehen und tun darf".
-// Keine direkte Abhängigkeit auf tui/ oder main/ — verhindert Zyklen.
+// Context defines what a plugin can see and do.
+// No direct dependency on tui/ or main/ to prevent import cycles.
 type Context struct {
 	Config   *config.Config
 	Hosts    *[]model.HostEntry
@@ -14,7 +14,7 @@ type Context struct {
 	Settings PluginSettings
 }
 
-// PluginSettings ist ein einfaches KV-Interface über config.ini (Plugin-Sektion).
+// PluginSettings is a simple key-value interface for plugin configuration.
 type PluginSettings interface {
 	Get(key string) string
 	Set(key, value string)
@@ -22,8 +22,8 @@ type PluginSettings interface {
 	GetInt(key string) int
 }
 
-// NoopPlugin ist eine leere Basisimplementierung — Plugins können diese embedden,
-// müssen dann nur die Methoden überschreiben die sie brauchen.
+// NoopPlugin is an empty base implementation. Plugins can embed it and
+// override only the methods they need.
 type NoopPlugin struct{}
 
 func (NoopPlugin) ID() string                 { return "" }

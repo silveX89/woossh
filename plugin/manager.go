@@ -11,16 +11,33 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// State wird in ~/.config/woossh/plugins.yaml persistiert.
-type State struct {
-	Enabled  map[string]bool              `yaml:"enabled"`
-	Versions map[string]string             `yaml:"versions"`
-	Sources  map[string]string             `yaml:"sources"`
-	Settings map[string]map[string]string  `yaml:"settings,omitempty"`
+// PluginRepo holds the configuration for a remote plugin repository.
+type PluginRepo struct {
+	URL     string `yaml:"url"`
+	Name    string `yaml:"name"`
+	Enabled bool   `yaml:"enabled"`
 }
 
-// managerSettings ist eine PluginSettings-Implementierung,
-// die auf den Manager-State zugreift und persistiert wird.
+// PluginStatus represents the lifecycle state of a plugin.
+type PluginStatus string
+
+const (
+	PluginAvailable  PluginStatus = "available"  // known from repo, not yet cloned
+	PluginDownloaded PluginStatus = "downloaded" // cloned to local disk
+	PluginStatusEnabled PluginStatus = "enabled" // downloaded + activated
+)
+
+// State is persisted in ~/.config/woossh/plugins.yaml.
+type State struct {
+	Enabled   map[string]bool              `yaml:"enabled"`
+	Versions  map[string]string            `yaml:"versions"`
+	Sources   map[string]string            `yaml:"sources"`
+	Settings  map[string]map[string]string `yaml:"settings,omitempty"`
+	Repos     []PluginRepo                 `yaml:"repos"`
+}
+
+// managerSettings is a PluginSettings implementation backed by Manager state
+// with automatic persistence.
 type managerSettings struct {
 	state  *State
 	id     string
@@ -60,7 +77,7 @@ func (ms *managerSettings) GetInt(key string) int {
 	return n
 }
 
-// pluginSettings ist die alte Implementierung (wird nur noch in NewManager genutzt).
+// pluginSettings is a standalone in-memory PluginSettings implementation.
 type pluginSettings struct {
 	mu     sync.RWMutex
 	values map[string]string
@@ -101,7 +118,7 @@ func (ps *pluginSettings) GetInt(key string) int {
 	return n
 }
 
-// Manager verwaltet den Plugin-Lebenszyklus.
+// Manager handles the plugin lifecycle.
 type Manager struct {
 	ctx       *Context
 	state     State
@@ -109,7 +126,7 @@ type Manager struct {
 	hooks     *hookDispatcher
 }
 
-// NewManager erstellt einen neuen Plugin-Manager.
+// NewManager creates a new plugin manager.
 func NewManager(cfg *config.Config, hosts *[]model.HostEntry) *Manager {
 	hooks := newHookDispatcher()
 	ctx := &Context{
@@ -127,21 +144,29 @@ func NewManager(cfg *config.Config, hosts *[]model.HostEntry) *Manager {
 			Versions: make(map[string]string),
 			Sources:  make(map[string]string),
 			Settings: make(map[string]map[string]string),
+			Repos:    defaultRepos(),
 		},
 	}
 }
 
-// Hooks gibt den HookDispatcher zurück.
+// defaultRepos returns the default plugin repository list.
+func defaultRepos() []PluginRepo {
+	return []PluginRepo{
+		{URL: "github.com/silveX89/woossh-plugins", Name: "woossh-plugins", Enabled: true},
+	}
+}
+
+// Hooks returns the HookDispatcher.
 func (m *Manager) Hooks() *hookDispatcher {
 	return m.hooks
 }
 
-// Context gibt den PluginContext zurück.
+// Context returns the plugin context.
 func (m *Manager) Context() *Context {
 	return m.ctx
 }
 
-// LoadState liest plugins.yaml von Disk.
+// LoadState reads plugins.yaml from disk.
 func (m *Manager) LoadState() error {
 	data, err := os.ReadFile(m.statePath)
 	if os.IsNotExist(err) {
@@ -149,6 +174,7 @@ func (m *Manager) LoadState() error {
 			Enabled:  make(map[string]bool),
 			Versions: make(map[string]string),
 			Sources:  make(map[string]string),
+			Repos:    defaultRepos(),
 		}
 		return nil
 	}
@@ -170,10 +196,13 @@ func (m *Manager) LoadState() error {
 	if m.state.Settings == nil {
 		m.state.Settings = make(map[string]map[string]string)
 	}
+	if len(m.state.Repos) == 0 {
+		m.state.Repos = defaultRepos()
+	}
 	return nil
 }
 
-// SaveState schreibt plugins.yaml auf Disk.
+// SaveState writes plugins.yaml to disk.
 func (m *Manager) SaveState() error {
 	_ = os.MkdirAll(filepath.Dir(m.statePath), 0o700)
 	data, err := yaml.Marshal(m.state)
@@ -183,7 +212,7 @@ func (m *Manager) SaveState() error {
 	return os.WriteFile(m.statePath, data, 0o600)
 }
 
-// InitAll initialisiert alle registrierten Plugins und aktiviert die laut State enabled.
+// InitAll initializes all registered plugins and enables those marked in state.
 func (m *Manager) InitAll() {
 	for _, p := range All() {
 		ctx := &Context{
@@ -205,12 +234,12 @@ func (m *Manager) InitAll() {
 	}
 }
 
-// IsEnabled prüft ob ein Plugin aktiviert ist.
+// IsEnabled reports whether a plugin is currently enabled.
 func (m *Manager) IsEnabled(id string) bool {
 	return m.state.Enabled[id]
 }
 
-// Enable aktiviert ein Plugin zur Laufzeit.
+// Enable activates a plugin at runtime.
 func (m *Manager) Enable(id string) error {
 	p := FindByID(id)
 	if p == nil {
@@ -223,7 +252,7 @@ func (m *Manager) Enable(id string) error {
 	return m.SaveState()
 }
 
-// Disable deaktiviert ein Plugin zur Laufzeit.
+// Disable deactivates a plugin at runtime.
 func (m *Manager) Disable(id string) error {
 	p := FindByID(id)
 	if p == nil {
@@ -236,7 +265,7 @@ func (m *Manager) Disable(id string) error {
 	return m.SaveState()
 }
 
-// Shutdown deaktiviert alle aktiven Plugins.
+// Shutdown disables all active plugins.
 func (m *Manager) Shutdown() {
 	for _, p := range All() {
 		if m.state.Enabled[p.ID()] {
@@ -245,8 +274,7 @@ func (m *Manager) Shutdown() {
 	}
 }
 
-// pluginSettingsFor erstellt ein PluginSettings-Interface,
-// das auf den State des Managers zugreift und persistiert wird.
+// pluginSettingsFor returns a PluginSettings backed by Manager state with persistence.
 func (m *Manager) pluginSettingsFor(id string) PluginSettings {
 	return &managerSettings{
 		state:  &m.state,
@@ -255,7 +283,7 @@ func (m *Manager) pluginSettingsFor(id string) PluginSettings {
 	}
 }
 
-// GetPluginSetting gibt einen benannten Setting-Wert eines Plugins zurück.
+// GetPluginSetting returns a named setting value for a plugin.
 func (m *Manager) GetPluginSetting(pluginID, key string) string {
 	if m.state.Settings == nil || m.state.Settings[pluginID] == nil {
 		return ""
@@ -263,7 +291,7 @@ func (m *Manager) GetPluginSetting(pluginID, key string) string {
 	return m.state.Settings[pluginID][key]
 }
 
-// SetPluginSetting setzt einen benannten Setting-Wert eines Plugins und persistiert.
+// SetPluginSetting sets a named setting value for a plugin and saves state.
 func (m *Manager) SetPluginSetting(pluginID, key, value string) {
 	if m.state.Settings == nil {
 		m.state.Settings = make(map[string]map[string]string)
@@ -275,7 +303,7 @@ func (m *Manager) SetPluginSetting(pluginID, key, value string) {
 	_ = m.SaveState()
 }
 
-// PluginManifest gibt das Manifest eines Plugins aus dem State zurück (oder nil).
+// PluginManifest returns the manifest for a plugin by ID, or nil if not found.
 func (m *Manager) PluginManifest(id string) *Manifest {
 	p := FindByID(id)
 	if p == nil {
@@ -283,6 +311,45 @@ func (m *Manager) PluginManifest(id string) *Manifest {
 	}
 	mf := p.Manifest()
 	return &mf
+}
+
+// GetRepos returns the current list of plugin repositories.
+func (m *Manager) GetRepos() []PluginRepo {
+	return m.state.Repos
+}
+
+// AddRepo adds a new plugin repository to the list.
+func (m *Manager) AddRepo(repo PluginRepo) error {
+	for _, r := range m.state.Repos {
+		if r.URL == repo.URL {
+			return fmt.Errorf("repo %q already exists", repo.URL)
+		}
+	}
+	m.state.Repos = append(m.state.Repos, repo)
+	return m.SaveState()
+}
+
+// RemoveRepo removes a repo by URL.
+func (m *Manager) RemoveRepo(url string) error {
+	var newRepos []PluginRepo
+	for _, r := range m.state.Repos {
+		if r.URL != url {
+			newRepos = append(newRepos, r)
+		}
+	}
+	m.state.Repos = newRepos
+	return m.SaveState()
+}
+
+// ToggleRepo enables or disables a repo by URL.
+func (m *Manager) ToggleRepo(url string) error {
+	for i, r := range m.state.Repos {
+		if r.URL == url {
+			m.state.Repos[i].Enabled = !m.state.Repos[i].Enabled
+			return m.SaveState()
+		}
+	}
+	return fmt.Errorf("repo %q not found", url)
 }
 
 func stateFilePath() string {
