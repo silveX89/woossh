@@ -11,10 +11,13 @@ A terminal UI for managing and connecting to SSH hosts. Fuzzy-search your host l
                      ╚══╝╚══╝  ╚═════╝  ╚═════╝ ╚══════╝╚══════╝╚═╝  ╚═╝
 ```
 
+**Version:** v0.3.0 — Plugin-System mit external Plugin Repo
+
 ## Requirements
 
 - Go 1.24+
 - Linux / macOS
+- `tmux` (optional, für Tmux-Plugin)
 
 ## Installation
 
@@ -30,8 +33,11 @@ curl -fsSL https://raw.githubusercontent.com/silveX89/woossh/main/install.sh | b
 git clone https://github.com/silveX89/woossh
 cd woossh
 go build -o woossh .
-sudo mv woossh /usr/local/bin/
+sudo cp woossh /usr/local/bin/
 ```
+
+> **Hinweis:** `woossh plugin install` benötigt Zigriff auf die `go.mod`. Führe Plugin-Befehle
+> aus dem repo-Verzeichnis aus oder setze `WOOSSH_SOURCE_DIR=/path/to/woossh`.
 
 ### go install
 
@@ -43,7 +49,6 @@ go install github.com/silveX89/woossh@latest
 
 **Bash:**
 Add to `~/.bashrc`:
-
 ```bash
 complete -C "woossh --list-hosts" woossh
 ```
@@ -68,18 +73,41 @@ woossh looks for config files in `./` first, then `~/.config/woossh/`:
 |------|---------|
 | `hosts.csv` | Your host list |
 | `config.ini` | SSH options (jump host, user, port, etc.) |
+| `plugins.yaml` | Plugin state (enabled/disabled, settings) |
 
-### hosts.csv formats
+### Plugin-System
 
-woossh auto-detects the CSV format:
+woossh v0.3.0+ hat ein compiled-in Plugin-System. Plugins werden via blank import
+in `registry_gen.go` eingebunden und bei jedem Build neu compiliert.
 
-```csv
-hostname,ip,description
-firewall,192.168.1.1,Edge firewall
-loadbalancer,192.168.1.10,HAProxy LB
+**Plugin-Manager (Ctrl+P):**
+```
+  🔌  Plugin Manager — woossh v0.3.0
+  ─────────────────────────────────────
+  Plugin                    Version    Status     Source
+  ─────────────────────────────────────
+▸ Tmux Integration         0.3.0      enabled    github.com/silveX89/woossh-plugins/tmux
+
+  [↑↓] Scroll  [Enter] Toggle enable/disable  [s] Settings  [Esc] or [q] Back
 ```
 
-Also supports `name`/`ip address` column format and plain host lists (one hostname per line).
+**Plugin CLI:**
+
+| Command | Description |
+|---------|-------------|
+| `woossh plugin list` | List all installed plugins |
+| `woossh plugin install <url> [--rebuild]` | Install plugin from Git URL + rebuild |
+| `woossh plugin remove <id>` | Remove an installed plugin |
+| `woossh plugin help` | Show plugin CLI help |
+
+**Externes Plugin installieren:**
+```bash
+cd /path/to/woossh
+woossh plugin install github.com/silveX89/woossh-plugins/tmux --rebuild
+```
+
+Plugins werden nach `~/.local/share/woossh/plugins/` geklont.
+Trust-Level: `github.com/silveX89/*` = official, alles andere = unknown.
 
 ## Usage
 
@@ -102,8 +130,17 @@ woossh
 | `Ctrl+Y` | Toggle copy mode (/c) |
 | `Ctrl+T` | Toggle tmux mode (/t) |
 | `Ctrl+O` | Open tmux session overview |
-| `Ctrl+S` | Save settings |
-| `/s` | Open settings menu |
+| `Ctrl+P` | Open plugin manager |
+| `s` (in Plugin-Manager) | Open plugin settings |
+| `Esc` / `q` | Back / Close |
+
+### Settings (Ctrl+S)
+
+Open settings menu with tabs: Allgemein, SSH, Tmux, TUI, Favoriten.
+
+- `↑↓` items, `Tab`/`Shift+Tab` categories
+- `Enter` toggles bool / opens editor for string / cycles enum
+- `Esc` saves and closes
 
 ### Tmux session overview (Ctrl+O)
 
@@ -128,7 +165,7 @@ woossh <hostname>
 | Command | Description |
 |---------|-------------|
 | `--list-hosts` | Print all hostnames (for shell completion) |
-| `--version` / `-v` | Show version ("woossh v0.2.0") |
+| `--version` / `-v` | Show version (`woossh v0.3.0`) |
 | `--cleanup` | Kill stale detached tmux sessions (>24h) |
 | `--import-ssh-config [path]` | Import hosts from `~/.ssh/config` |
 

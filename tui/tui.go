@@ -18,6 +18,7 @@ import (
 
 	"github.com/silveX89/woossh/config"
 	"github.com/silveX89/woossh/model"
+	"github.com/silveX89/woossh/plugin"
 	sshpkg "github.com/silveX89/woossh/ssh"
 	"github.com/silveX89/woossh/tmux"
 )
@@ -406,6 +407,8 @@ const (
 	modeHosts         appMode = iota // Host list view (default)
 	modeSettings                     // Settings view
 	modeTmuxOverview                 // Tmux session overview
+	modePluginManager                // Plugin manager view
+	modePluginSettings               // Plugin settings view
 )
 
 // settingsNavItem is a single row in the settings view.
@@ -423,6 +426,14 @@ type settingsEditState int
 const (
 	settingsBrowse settingsEditState = iota
 	settingsEditing
+)
+
+// pluginSettingsEditState tracks inline editing for plugin settings.
+type pluginSettingsEditState int
+
+const (
+	pluginSettingsBrowse  pluginSettingsEditState = iota
+	pluginSettingsEditing
 )
 
 type tuiModel struct {
@@ -469,9 +480,19 @@ type tuiModel struct {
 	tmuxSessions     []tmux.SessionInfo
 	tmuxScrollOffset int
 	tmuxError        string // error message from tmux
+
+	// plugin manager
+	pluginMgr            *plugin.Manager
+	pluginScrollOffset   int
+
+	// plugin settings view
+	pluginSettingsPluginID  string
+	pluginSettingsOffset    int
+	pluginSettingsEditState pluginSettingsEditState
+	pluginSettingsEditBuf   string
 }
 
-func initialModel(cfg config.Config, hosts []model.HostEntry, version string) tuiModel {
+func initialModel(cfg config.Config, hosts []model.HostEntry, version string, pluginMgr *plugin.Manager) tuiModel {
 	ti := textinput.New()
 	ti.Placeholder = "type hostname or IP…"
 	ti.ShowSuggestions = true
@@ -502,6 +523,8 @@ func initialModel(cfg config.Config, hosts []model.HostEntry, version string) tu
 		height:       24,
 		mode:         modeHosts,
 		tmuxSessions: nil,
+		pluginMgr:    pluginMgr,
+		pluginScrollOffset: 0,
 	}
 	m.initSettings()
 	m.applyScheme()
@@ -756,6 +779,165 @@ func (m tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 
+		// Plugin settings mode keyboard handling
+		if m.mode == modePluginSettings {
+			switch {
+			case msg.Type == tea.KeyCtrlC:
+				m.err = errors.New("interrupted")
+				m.quitting = true
+				return m, tea.Quit
+
+			case msg.Type == tea.KeyEscape, msg.Runes != nil && string(msg.Runes) == "q":
+				m.mode = modePluginManager
+				m.pluginScrollOffset = 0
+				return m, nil
+
+			case msg.Type == tea.KeyUp:
+				if m.pluginSettingsEditState == pluginSettingsEditing {
+					break // don't navigate while editing
+				}
+				if m.pluginSettingsOffset > 0 {
+					m.pluginSettingsOffset--
+				}
+				return m, nil
+
+			case msg.Type == tea.KeyDown:
+				if m.pluginSettingsEditState == pluginSettingsEditing {
+					break // don't navigate while editing
+				}
+				settings := m.pluginMgr.PluginManifest(m.pluginSettingsPluginID)
+				if settings != nil && m.pluginSettingsOffset < len(settings.Settings)-1 {
+					m.pluginSettingsOffset++
+				}
+				return m, nil
+
+			case m.pluginSettingsEditState == pluginSettingsEditing:
+				switch {
+				case msg.Type == tea.KeyEnter:
+					m.applyPluginSettingEdit()
+					m.pluginSettingsEditState = pluginSettingsBrowse
+					m.pluginSettingsEditBuf = ""
+					return m, nil
+
+				case msg.Type == tea.KeyEscape:
+					m.pluginSettingsEditState = pluginSettingsBrowse
+					m.pluginSettingsEditBuf = ""
+					return m, nil
+
+				case msg.Type == tea.KeyBackspace:
+					if len(m.pluginSettingsEditBuf) > 0 {
+						m.pluginSettingsEditBuf = m.pluginSettingsEditBuf[:len(m.pluginSettingsEditBuf)-1]
+					}
+					return m, nil
+
+				case msg.Type == tea.KeyRunes:
+					m.pluginSettingsEditBuf += string(msg.Runes)
+					return m, nil
+				}
+				return m, nil
+
+			case msg.Type == tea.KeyEnter:
+				// Toggle bool or open editor for string/int
+				settings := m.pluginMgr.PluginManifest(m.pluginSettingsPluginID)
+				if settings != nil && m.pluginSettingsOffset < len(settings.Settings) {
+					def := settings.Settings[m.pluginSettingsOffset]
+					switch def.Kind {
+					case "bool":
+						curr := m.pluginMgr.GetPluginSetting(m.pluginSettingsPluginID, def.Key)
+						newVal := "false"
+						if curr == "false" || curr == "" {
+							newVal = "true"
+						}
+						m.pluginMgr.SetPluginSetting(m.pluginSettingsPluginID, def.Key, newVal)
+						return m, nil
+					case "enum":
+						curr := m.pluginMgr.GetPluginSetting(m.pluginSettingsPluginID, def.Key)
+						next := false
+						for _, opt := range def.EnumOpts {
+							if next {
+								m.pluginMgr.SetPluginSetting(m.pluginSettingsPluginID, def.Key, opt)
+								return m, nil
+							}
+							if opt == curr {
+								next = true
+							}
+						}
+						if len(def.EnumOpts) > 0 {
+							m.pluginMgr.SetPluginSetting(m.pluginSettingsPluginID, def.Key, def.EnumOpts[0])
+						}
+						return m, nil
+					case "string", "int":
+						curr := m.pluginMgr.GetPluginSetting(m.pluginSettingsPluginID, def.Key)
+						if curr == "" {
+							curr = def.Default
+						}
+						m.pluginSettingsEditBuf = curr
+						m.pluginSettingsEditState = pluginSettingsEditing
+						return m, nil
+					}
+				}
+				return m, nil
+			}
+			return m, nil
+		}
+
+		// Plugin manager mode keyboard handling
+		if m.mode == modePluginManager {
+			switch {
+			case msg.Type == tea.KeyCtrlC:
+				m.err = errors.New("interrupted")
+				m.quitting = true
+				return m, tea.Quit
+
+			case msg.Type == tea.KeyEscape, msg.Runes != nil && string(msg.Runes) == "q":
+				m.mode = modeHosts
+				m.input.Focus()
+				m.updatePromptStyle()
+				m.updateSuggestions()
+				return m, nil
+
+			case msg.Type == tea.KeyUp:
+				if m.pluginScrollOffset > 0 {
+					m.pluginScrollOffset--
+				}
+				return m, nil
+
+			case msg.Type == tea.KeyDown:
+				plugins := plugin.All()
+				if m.pluginScrollOffset < len(plugins)-1 {
+					m.pluginScrollOffset++
+				}
+				return m, nil
+
+			case msg.Type == tea.KeyEnter:
+				// Toggle plugin enable/disable
+				plugins := plugin.All()
+				if len(plugins) > 0 && m.pluginScrollOffset < len(plugins) {
+					p := plugins[m.pluginScrollOffset]
+					if m.pluginMgr.IsEnabled(p.ID()) {
+						_ = m.pluginMgr.Disable(p.ID())
+					} else {
+						_ = m.pluginMgr.Enable(p.ID())
+					}
+				}
+				return m, nil
+
+			case msg.Runes != nil && string(msg.Runes) == "s":
+				// Open plugin settings
+				plugins := plugin.All()
+				if len(plugins) > 0 && m.pluginScrollOffset < len(plugins) {
+					p := plugins[m.pluginScrollOffset]
+					m.pluginSettingsPluginID = p.ID()
+					m.pluginSettingsOffset = 0
+					m.pluginSettingsEditState = pluginSettingsBrowse
+					m.pluginSettingsEditBuf = ""
+					m.mode = modePluginSettings
+				}
+				return m, nil
+			}
+			return m, nil
+		}
+
 		// Host mode keyboard handling
 		switch {
 		case msg.Type == tea.KeyCtrlC:
@@ -795,6 +977,13 @@ func (m tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			m.mode = modeTmuxOverview
 			m.tmuxScrollOffset = 0
+			m.input.Blur()
+			return m, nil
+
+		case msg.Type == tea.KeyCtrlP:
+			// Plugin manager
+			m.mode = modePluginManager
+			m.pluginScrollOffset = 0
 			m.input.Blur()
 			return m, nil
 
@@ -939,6 +1128,16 @@ func (m tuiModel) View() string {
 		return m.tmuxOverviewView()
 	}
 
+	// Plugin manager mode
+	if m.mode == modePluginManager {
+		return m.pluginView()
+	}
+
+	// Plugin settings mode
+	if m.mode == modePluginSettings {
+		return m.pluginSettingsView()
+	}
+
 	var sb strings.Builder
 
 	// Banner
@@ -999,7 +1198,7 @@ func (m tuiModel) View() string {
 	// Hint lines
 	sb.WriteString(styleDim.Render("  Tab / type to autocomplete  ·  Enter to connect  ·  Ctrl+C to quit") + "\n")
 	sb.WriteString(styleDim.Render("  /o direct  ·  /v verbose  ·  /d dry-run  ·  /l legacy  ·  /c copy  ·  /t tmux (stackable, e.g. /o/v)") + "\n")
-	sb.WriteString(styleDim.Render("  Ctrl+S settings  ·  Ctrl+F favorite  ·  Ctrl+Y toggle /c  ·  Ctrl+T tmux  ·  Ctrl+O overview") + "\n")
+	sb.WriteString(styleDim.Render("  Ctrl+S settings  ·  Ctrl+F favorite  ·  Ctrl+Y toggle /c  ·  Ctrl+T tmux  ·  Ctrl+O overview  ·  Ctrl+P plugins") + "\n")
 
 	// Scroll indicator
 	if m.needsScroll() {
@@ -1351,8 +1550,8 @@ func (m *tuiModel) cycleSettingsEnum(item *settingsNavItem) {
 }
 
 // Run launches the interactive TUI and returns the user's selection.
-func Run(cfg config.Config, hosts []model.HostEntry, version string) (Result, error) {
-	m := initialModel(cfg, hosts, version)
+func Run(cfg config.Config, hosts []model.HostEntry, version string, pluginMgr *plugin.Manager) (Result, error) {
+	m := initialModel(cfg, hosts, version, pluginMgr)
 	p := tea.NewProgram(m, tea.WithAltScreen())
 	final, err := p.Run()
 	if err != nil {
