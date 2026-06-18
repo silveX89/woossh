@@ -232,9 +232,19 @@ func runList(args []string, mgr *plugin.Manager) {
 	fmt.Println(strings.Repeat("─", 100))
 
 	for _, e := range entries {
-		status := "disabled"
-		if e.Enabled {
+		status := "available"
+		switch e.Status {
+		case plugin.PluginStatusEnabled:
 			status = "enabled"
+		case plugin.PluginDownloaded:
+			status = "downloaded"
+		case plugin.PluginAvailable:
+			status = "available"
+		default:
+			status = "disabled"
+			if e.Status == plugin.PluginAvailable && !e.Enabled {
+				status = "available"
+			}
 		}
 
 		trustStr := "official"

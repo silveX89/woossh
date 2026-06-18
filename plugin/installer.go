@@ -793,5 +793,32 @@ func (m *Manager) ListPlugins() ([]PluginEntry, error) {
 		}
 	}
 
+	// 3. Repo-discovered plugins — for each enabled repo, show available plugins
+	//    from the configured GitHub repos (e.g. silveX89/woossh-plugins).
+	for _, repo := range m.state.Repos {
+		if !repo.Enabled {
+			continue
+		}
+		discovered, err := m.DiscoverRepoPlugins(repo)
+		if err != nil {
+			// API failure is non-fatal — skip silently
+			continue
+		}
+		for _, dp := range discovered {
+			// Skip if already shown from All() or registry_gen.go
+			already := false
+			for _, e := range entries {
+				if e.ID == dp.ID || e.Source == dp.Source {
+					already = true
+					break
+				}
+			}
+			if already {
+				continue
+			}
+			entries = append(entries, dp)
+		}
+	}
+
 	return entries, nil
 }

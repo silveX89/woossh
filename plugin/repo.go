@@ -66,10 +66,12 @@ func (m *Manager) DiscoverRepoPlugins(repo PluginRepo) ([]PluginEntry, error) {
 		}
 
 		entries = append(entries, PluginEntry{
-			ID:     item.Name,
-			Name:   item.Name,
-			Source: pluginURL,
-			Status: status,
+			ID:      item.Name,
+			Name:    strings.Title(item.Name),
+			Version: "—",
+			Source:  pluginURL,
+			Trust:   TrustLevelForURL(pluginURL),
+			Status:  status,
 		})
 	}
 	return entries, nil
